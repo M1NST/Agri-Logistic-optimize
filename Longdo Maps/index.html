@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Map</title>
+    <script src="https://api.longdo.com/map/?key=aca678c74920c894b8721c6efc6e4bd2"></script>
+    <style>
+        #map { width: 100%; height: 800px; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <script>
+        window.onload = function() {
+    // 1. สร้างแผนที่พื้นฐาน
+    var map = new longdo.Map({
+        placeholder: document.getElementById('map')
+    });
+
+    // 2. ตั้งค่าพิกัดเริ่มต้น (กรุงเทพฯ)
+    map.location({ lon: 100.5348, lat: 13.7461 }, true);
+
+    // 3. เริ่มฟังก์ชันคำนวณเส้นทาง
+    // เราจะสร้างปุ่มใน HTML หรือรันคำสั่งนี้โดยตรงก็ได้ครับ
+    
+    // --- เริ่มทดลองวางรูทจาก 'สยาม' ไป 'ทองหล่อ' ---
+    
+    // ล้างข้อมูลเส้นทางเก่าก่อน (ถ้ามี)
+    map.Route.clear();
+
+    // เพิ่มจุดที่ 1: สยามพารากอน (จุดเริ่มต้น)
+    map.Route.add(new longdo.Marker(
+        { lon: 100.5348, lat: 13.7461 }, 
+        { title: 'จุดเริ่มต้น', detail: 'สยามพารากอน' }
+    ));
+
+    // เพิ่มจุดที่ 2: สถานีรถไฟฟ้าทองหล่อ (จุดปลายทาง)
+    map.Route.add(new longdo.Marker(
+        { lon: 100.5785, lat: 13.7242 }, 
+        { title: 'จุดหมาย', detail: 'ทองหล่อ' }
+    ));
+
+    // 4. สั่งให้คำนวณและวาดเส้นทางบนแผนที่
+    map.Route.search();
+
+    // 5. ดึงข้อมูลระยะทางและเวลาออกมาดู (ต้องรอให้คำนวณเสร็จนิดนึง)
+    map.Event.bind('routeSuccess', function() {
+        var distance = map.Route.distance(); // หน่วยเป็นเมตร
+        var duration = map.Route.duration(); // หน่วยเป็นวินาที
+        
+        console.log("ระยะทาง: " + (distance / 1000).toFixed(2) + " กิโลเมตร");
+        console.log("เวลาเดินทางโดยประมาณ: " + Math.floor(duration / 60) + " นาที");
+        
+        alert("คำนวณเส้นทางสำเร็จ!\nระยะทาง: " + (distance / 1000).toFixed(2) + " กม.");
+    });
+};
+    </script>
+</body>
+</html>
