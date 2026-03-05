@@ -1,0 +1,109 @@
+
+-- 1. ตารางสิทธิ์การใช้งาน (ใช้ Code เป็น Key เช่น 'ADMIN', 'CUSTOMER', 'DRIVER')
+CREATE TABLE roles (
+    RoleID VARCHAR(6) NOT NULL,
+    RoleName VARCHAR(15),
+    CONSTRAINT pk_roles PRIMARY KEY (RoleID)
+);
+
+-- 2. ตารางหมวดหมู่สินค้า (ใช้ Custom Key เช่น 'CAT-01' หมวดปุ๋ย)
+CREATE TABLE product_types (
+    ProdTypeID VARCHAR(20) NOT NULL,
+    ProdTypeName VARCHAR(100) NOT NULL,
+    CONSTRAINT pk_product_types PRIMARY KEY (ProdTypeID)
+);
+
+-- 3. ตารางรถขนส่ง (ใช้ ทะเบียนรถ เป็น Custom Key)
+CREATE TABLE cars (
+    CarNo VARCHAR(20) NOT NULL,
+    MaxCapacity DECIMAL(10,2) NOT NULL,
+    Status VARCHAR(20) DEFAULT 'active',
+    CONSTRAINT pk_cars PRIMARY KEY (CarNo)
+);
+
+-- 4. ตารางผู้ใช้งาน (ใช้ Custom Key เช่น 'U00001')
+CREATE TABLE users (
+    UserID VARCHAR(20) NOT NULL,
+    RoleID VARCHAR(6) NOT NULL, -- FK ต้องชนิดเดียวกับ PK ของตารางแม่
+    Name VARCHAR(100) NOT NULL,
+    Phone VARCHAR(20) NOT NULL,
+    Password_hash VARCHAR(255) NOT NULL,
+    Created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT pk_users PRIMARY KEY (UserID),
+    CONSTRAINT uq_users_phone UNIQUE (Phone),
+    CONSTRAINT fk_users_roles FOREIGN KEY (RoleID) REFERENCES roles(RoleID) ON DELETE RESTRICT
+);
+
+-- 5. ตารางสินค้า (ใช้ SKU เป็น Custom Key เช่น 'PRD-0001')
+CREATE TABLE products (
+    ProdID VARCHAR(20) NOT NULL,
+    ProdTypeID VARCHAR(20),
+    Prodname VARCHAR(150) NOT NULL,
+    weight_per_unit DECIMAL(10,2) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    QTY INT DEFAULT 0,
+    CONSTRAINT pk_products PRIMARY KEY (ProdID),
+    CONSTRAINT fk_products_product_types FOREIGN KEY (ProdTypeID) REFERENCES product_types(ProdTypeID) ON DELETE SET NULL
+);
+
+-- 6. ตารางคำสั่งซื้อ (ใช้เลขที่บิลเป็น Custom Key เช่น 'ORD-2603-0001')
+CREATE TABLE orders (
+    OrderNo VARCHAR(30) NOT NULL,
+    CusID VARCHAR(20) NOT NULL,
+    Total_weight DECIMAL(10,2) NOT NULL DEFAULT 0,
+    Total_price DECIMAL(10,2) NOT NULL DEFAULT 0,
+    Status VARCHAR(30) DEFAULT 'pending',
+    
+    Delivery_location GEOGRAPHY(POINT, 4326), 
+    Delivery_lat DECIMAL(10, 8),
+    Delivery_lng DECIMAL(11, 8),
+    Distance_from_store DECIMAL(10, 2),
+    Is_free_delivery BOOLEAN DEFAULT FALSE,
+    Created_at TIMESTAMP DEFAULT NOW(),
+    
+    CONSTRAINT pk_orders PRIMARY KEY (OrderNo),
+    CONSTRAINT fk_orders_users FOREIGN KEY (CusID) REFERENCES users(UserID) ON DELETE CASCADE
+);
+
+-- 7. ตารางรายละเอียดคำสั่งซื้อ
+CREATE TABLE order_details (
+    id SERIAL, 
+    OrderNo VARCHAR(30) NOT NULL,
+    ProdID VARCHAR(20) NOT NULL,
+    Quantity INT NOT NULL,
+    price_at_that_time DECIMAL(10,2) NOT NULL,
+    weight_at_that_time DECIMAL(10,2) NOT NULL,
+    CONSTRAINT pk_order_details PRIMARY KEY (id),
+    CONSTRAINT fk_order_details_orders FOREIGN KEY (OrderNo) REFERENCES orders(OrderNo) ON DELETE CASCADE,
+    CONSTRAINT fk_order_details_products FOREIGN KEY (ProdID) REFERENCES products(ProdID) ON DELETE RESTRICT
+);
+
+-- 8. ตารางรอบการจัดส่ง (ใช้เลขที่ทริปเป็น Custom Key เช่น 'TRP-001')
+CREATE TABLE trips (
+    TripNo VARCHAR(30) NOT NULL,
+    DriverID VARCHAR(20) NOT NULL,
+    CarNo VARCHAR(20) NOT NULL,
+    Total_weight DECIMAL(10,2) DEFAULT 0,
+    Total_distance DECIMAL(10,2) DEFAULT 0,
+    Status VARCHAR(30) DEFAULT 'planned',
+    Created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT pk_trips PRIMARY KEY (trip_no),
+    CONSTRAINT fk_trips_driver FOREIGN KEY (driver_id) REFERENCES users(UserID) ON DELETE RESTRICT,
+    CONSTRAINT fk_trips_cars FOREIGN KEY (CarNO) REFERENCES cars(CarNo) ON DELETE RESTRICT
+);
+
+-- 9. ตารางเชื่อมรอบการจัดส่งกับคำสั่งซื้อ 
+CREATE TABLE trip_orders (
+    TripNo VARCHAR(30) NOT NULL,
+    OrderNo VARCHAR(30) NOT NULL,
+    delivery_sequence INT NOT NULL,
+    
+    CONSTRAINT pk_trip_orders PRIMARY KEY (TripNo, OrderNo),
+    CONSTRAINT fk_trip_orders_trips FOREIGN KEY (TripNo) REFERENCES trips(TripNo) ON DELETE CASCADE,
+    CONSTRAINT fk_trip_orders_orders FOREIGN KEY (OrderNo) REFERENCES orders(OrderNo) ON DELETE CASCADE,
+    
+    CONSTRAINT uq_trip_sequence UNIQUE (TripNo, delivery_sequence) 
+);
+
+-- สร้าง Index สำหรับแผนที่
+CREATE INDEX idx_orders_delivery_location ON orders USING GIST (delivery_location);
