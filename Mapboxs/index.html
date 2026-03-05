@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ทดสอบ Mapbox + คำนวณระยะทาง</title>
+    
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+        
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        #map {
+            height: 600px;
+            border-radius: 8px;
+        }
+        
+        .info-box {
+            background: #f0f9ff;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+        
+        .info-box h3 {
+            color: #0284c7;
+            margin-bottom: 10px;
+        }
+        
+        .info-item {
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        
+        .label {
+            color: #666;
+            display: inline-block;
+            width: 80px;
+        }
+        
+        .value {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+        }
+        
+        .badge-success {
+            background: #10b981;
+        }
+        
+        .badge-warning {
+            background: #f59e0b;
+        }
+        
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        
+        button:hover {
+            background: #1d4ed8;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚜 ทดสอบ Mapbox + คำนวณระยะทาง</h1>
+    
+    <div class="container">
+        <!-- Left Panel -->
+        <div class="panel">
+            <div class="info-box">
+                <h3>📋 คำแนะนำ</h3>
+                <ol style="margin-left: 20px; font-size: 14px;">
+                    <li>คลิกบนแผนที่</li>
+                    <li>ดูระยะทางจากร้าน</li>
+                    <li>ดูค่าส่ง (ฟรีหรือไม่)</li>
+                </ol>
+            </div>
+            
+            <div id="result" style="display: none;">
+                <div class="info-box">
+                    <h3>📍 จุดที่เลือก</h3>
+                    <div class="info-item">
+                        <span class="label">Latitude:</span>
+                        <span class="value" id="lat">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Longitude:</span>
+                        <span class="value" id="lng">-</span>
+                    </div>
+                </div>
+                
+                <div class="info-box">
+                    <h3>📏 ระยะทาง</h3>
+                    <div class="info-item">
+                        <span class="label">ระยะทาง:</span>
+                        <span class="value" id="distance">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">การจัดส่ง:</span>
+                        <span id="deliveryType">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">ค่าส่ง:</span>
+                        <span class="value" id="fee">-</span>
+                    </div>
+                </div>
+                
+                <button onclick="showRoute()">🗺️ แสดงเส้นทาง</button>
+            </div>
+        </div>
+        
+        <!-- Right Panel - Map -->
+        <div class="panel">
+            <div id="map"></div>
+        </div>
+    </div>
+
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+    
+    <script>
+        // ⚠️ ใส่ Token ของคุณ
+        mapboxgl.accessToken = 'pk.eyJ1IjoibTFuc3QiLCJhIjoiY21sbzFydjV0MHk5NDNjb2RocGd3YW1saCJ9.TEtN7ur2LiN2eFjSO8dbnQ';
+        
+        // ตั้งค่า
+        const STORE_LAT = 13.7563;
+        const STORE_LNG = 100.5018;
+        const FREE_RADIUS = 20; // km
+        
+        // สร้างแผนที่
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/streets-v12',
+            center: [STORE_LNG, STORE_LAT],
+            zoom: 11
+        });
+        
+        map.addControl(new mapboxgl.NavigationControl());
+        
+        // ปักหมุดร้าน
+        new mapboxgl.Marker({ color: 'red' })
+            .setLngLat([STORE_LNG, STORE_LAT])
+            .setPopup(new mapboxgl.Popup().setHTML('<h3>🏪 ร้านปุ๋ย</h3>'))
+            .addTo(map);
+        
+        let deliveryMarker = null;
+        let selectedLoc = null;
+        
+        // คลิกแผนที่
+        map.on('click', (e) => {
+            const { lng, lat } = e.lngLat;
+            selectedLoc = { lat, lng };
+            
+            // ลบหมุดเดิม
+            if (deliveryMarker) deliveryMarker.remove();
+            
+            // ปักหมุดใหม่
+            deliveryMarker = new mapboxgl.Marker({ color: 'blue' })
+                .setLngLat([lng, lat])
+                .setPopup(new mapboxgl.Popup().setHTML('<h3>📦 จุดส่ง</h3>'))
+                .addTo(map);
+            
+            // แสดงข้อมูล
+            document.getElementById('result').style.display = 'block';
+            document.getElementById('lat').textContent = lat.toFixed(6);
+            document.getElementById('lng').textContent = lng.toFixed(6);
+            
+            // คำนวณระยะทาง
+            const distance = calculateDistance(STORE_LAT, STORE_LNG, lat, lng);
+            const isFree = distance <= FREE_RADIUS;
+            const fee = isFree ? 0 : (distance - FREE_RADIUS) * 10;
+            
+            document.getElementById('distance').textContent = distance.toFixed(2) + ' กม.';
+            
+            if (isFree) {
+                document.getElementById('deliveryType').innerHTML = 
+                    '<span class="badge badge-success">✓ ส่งฟรี</span>';
+            } else {
+                document.getElementById('deliveryType').innerHTML = 
+                    '<span class="badge badge-warning">คิดค่าส่ง</span>';
+            }
+            
+            document.getElementById('fee').textContent = fee.toFixed(2) + ' บาท';
+            
+            console.log(`📍 เลือก: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+            console.log(`📏 ระยะทาง: ${distance.toFixed(2)} km`);
+            console.log(`💰 ค่าส่ง: ${fee.toFixed(2)} บาท`);
+            
+            // ลบเส้นทางเดิม
+            if (map.getLayer('route')) {
+                map.removeLayer('route');
+                map.removeSource('route');
+            }
+        });
+        
+        // คำนวณระยะทาง (Haversine)
+        function calculateDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * 
+                      Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLng/2) * Math.sin(dLng/2);
+            
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+        
+        // แสดงเส้นทาง
+        async function showRoute() {
+            if (!selectedLoc) return;
+            
+            const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${STORE_LNG},${STORE_LAT};${selectedLoc.lng},${selectedLoc.lat}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.routes && data.routes.length > 0) {
+                    const route = data.routes[0].geometry;
+                    
+                    // ลบเส้นเดิม
+                    if (map.getLayer('route')) {
+                        map.removeLayer('route');
+                        map.removeSource('route');
+                    }
+                    
+                    // วาดเส้นใหม่
+                    map.addSource('route', {
+                        type: 'geojson',
+                        data: {
+                            type: 'Feature',
+                            geometry: route
+                        }
+                    });
+                    
+                    map.addLayer({
+                        id: 'route',
+                        type: 'line',
+                        source: 'route',
+                        paint: {
+                            'line-color': '#3b82f6',
+                            'line-width': 5
+                        }
+                    });
+                    
+                    console.log('✅ แสดงเส้นทางแล้ว');
+                }
+            } catch (error) {
+                console.error('❌ Error:', error);
+                alert('เกิดข้อผิดพลาด');
+            }
+        }
+        
+        console.log('✅ พร้อมใช้งาน!');
+    </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",         /* หรืออย่างน้อย ES6 */
+    "lib": [
+      "ES2020",                 /* เพื่อให้รู้จัก Map, Set และฟีเจอร์ใหม่ๆ */
+      "DOM",                    /* จำเป็นสำหรับ Mapbox เพราะต้องเข้าถึง Window/Document */
+      "DOM.Iterable" 
+    ],
+    "module": "commonjs",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,       /* ช่วยข้ามการเช็ค Error เล็กน้อยใน node_modules */
+    "forceConsistentCasingInFileNames": true
+  }
+}
