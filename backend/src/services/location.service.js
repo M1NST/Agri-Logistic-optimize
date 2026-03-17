@@ -1,8 +1,8 @@
 import pool from '../config/db.js';
 
 export class LocationService {
-  static STORE_LAT = Number(process.env.STORE_LAT);
-  static STORE_LNG = Number(process.env.STORE_LNG);
+  static get STORE_LAT() { return Number(process.env.STORE_LAT); }
+  static get STORE_LNG() { return Number(process.env.STORE_LNG); }
 
   static async calculateDistance(customerLat, customerLng) {
     const query = `

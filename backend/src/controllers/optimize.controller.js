@@ -1,15 +1,17 @@
 import pool from '../config/db.js';
 
+const seqRes = await client.query(`SELECT nextval('trip_id_seq') as seq`);
+const tripNo = `TRP-${String(seqRes.rows[0].seq).padStart(5, '0')}`;
+
 export const optimizeTrips = async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN'); 
 
     const ordersRes = await client.query(`
-      SELECT OrderNo, Total_weight 
-      FROM orders 
-      WHERE Status = 'pending' 
-      ORDER BY Total_weight DESC
+    SELECT OrderNo, Total_weight, Delivery_lat, Delivery_lng
+    FROM orders WHERE Status = 'pending'
+    ORDER BY Total_weight DESC
     `);
     const pendingOrders = ordersRes.rows;
 
@@ -25,13 +27,17 @@ export const optimizeTrips = async (req, res) => {
     `);
     const availableCars = carsRes.rows;
 
-    let trips = availableCars.map(car => ({
-      tripNo: `TRP-${Date.now()}-${Math.floor(Math.random() * 1000)}`, 
-      carNo: car.carno, 
-      maxCapacity: parseFloat(car.maxcapacity),
-      currentWeight: 0,
-      orders: []
-    }));
+    tripsDetail: activeTrips.map(t => ({
+    tripNo: t.tripNo,
+    carNo: t.carNo,
+    usedCapacity: `${t.currentWeight} / ${t.maxCapacity} kg`,
+    orderCount: t.orders.length,
+    orderNos: t.orders,                    
+    coords: t.orders.map(orderNo => {      
+    const o = pendingOrders.find(p => p.orderno === orderNo);
+    return [parseFloat(o.delivery_lng), parseFloat(o.delivery_lat)];
+  })
+}))
 
     let unassignedOrders = [];
 
@@ -39,7 +45,7 @@ export const optimizeTrips = async (req, res) => {
       let isPlaced = false;
       const orderWeight = parseFloat(order.total_weight);
 
-      for (let trip of trips) {
+      for (let trip of tripsDetail) {
         if (trip.currentWeight + orderWeight <= trip.maxCapacity) {
           trip.orders.push(order.orderno);
           trip.currentWeight += orderWeight;
@@ -53,7 +59,7 @@ export const optimizeTrips = async (req, res) => {
       }
     }
 
-    const activeTrips = trips.filter(t => t.orders.length > 0);
+    const activeTrips = tripsDetail.filter(t => t.orders.length > 0);
     const defaultDriver = 'U00001'; 
 
     for (let trip of activeTrips) {
