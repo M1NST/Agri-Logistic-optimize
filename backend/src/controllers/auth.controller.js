@@ -1,0 +1,103 @@
+import pool from '../config/db.js';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+
+export const register = async (req, res) => {
+  try {
+    const { Name, Phone, Password } = req.body;
+
+    if (!Name || !Phone || !Password) {
+      return res.status(400).json({ success: false, message: "กรุณากรอกข้อมูลให้ครบถ้วน" });
+    }
+
+    const userExists = await pool.query('SELECT * FROM users WHERE Phone = $1', [Phone]);
+    if (userExists.rows.length > 0) {
+      return res.status(400).json({ success: false, message: "เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว" });
+    }
+    const lastUserResult = await pool.query('SELECT UserID FROM users ORDER BY UserID DESC LIMIT 1');
+    let newUserID = 'U00001'; 
+
+    if (lastUserResult.rows.length > 0) {
+      const lastID = lastUserResult.rows[0].userid; 
+      const lastNumber = parseInt(lastID.substring(1)); 
+      const nextNumber = lastNumber + 1;
+      newUserID = 'U' + nextNumber.toString().padStart(5, '0'); 
+    }
+
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(Password, saltRounds);
+
+    const query = `
+      INSERT INTO users (UserID, RoleID, Name, Phone, Password_hash)
+      VALUES ($1, 'CUST', $2, $3, $4)
+      RETURNING UserID, Name, RoleID;
+    `;
+    
+    const result = await pool.query(query, [newUserID, Name, Phone, hashedPassword]);
+
+    res.status(201).json({ 
+      success: true, 
+      message: "ลงทะเบียนสมาชิกสำเร็จ", 
+      data: result.rows[0] 
+    });
+
+  } catch (error) {
+    console.error("Register Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const login = async (req, res) => {
+  try {
+    const { phone, password } = req.body;
+
+    if (!phone || !password) {
+      return res.status(400).json({ success: false, message: "กรุณากรอกเบอร์โทรศัพท์และรหัสผ่าน" });
+    }
+
+    const query = `
+      SELECT u.*, r.RoleName 
+      FROM users u 
+      JOIN roles r ON u.RoleID = r.RoleID 
+      WHERE u.Phone = $1
+    `;
+    const result = await pool.query(query, [phone]);
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ success: false, message: "ไม่พบเบอร์โทรศัพท์นี้ในระบบ" });
+    }
+
+    const user = result.rows[0];
+
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: "รหัสผ่านไม่ถูกต้อง" });
+    }
+
+    const secretKey = process.env.JWT_SECRET || 'fallback_secret_key_agri_logistic';
+    const token = jwt.sign(
+      { 
+        userId: user.userid, 
+        role: user.roleid,  
+        name: user.name 
+      },
+      secretKey,
+      { expiresIn: '1d' } 
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.userid,
+        name: user.name,
+        role: user.roleid,
+        roleName: user.rolename
+      }
+    });
+
+  } catch (error) {
+    console.error("Login Error:", error);
+    res.status(500).json({ success: false, message: "เกิดข้อผิดพลาดจากเซิร์ฟเวอร์", error: error.message });
+  }
+};

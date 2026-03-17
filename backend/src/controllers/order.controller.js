@@ -37,6 +37,20 @@ export const createOrder = async (req, res) => {
   }
 };
 
+export const getStoreLocation = (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: {
+        lat: parseFloat(process.env.STORE_LAT ),
+        lng: parseFloat(process.env.STORE_LNG )
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const getOrders = async (req, res) => {
   try {
     const orders = await getAllOrders();
