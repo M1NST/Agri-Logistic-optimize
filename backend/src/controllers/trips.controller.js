@@ -1,15 +1,9 @@
 import pool from '../config/db.js';
 
-// ────────────────────────────────────────────────────────────
-// GET /api/trips/my
-// Driver ดู trips ที่ตัวเองรับผิดชอบ + orders แต่ละจุด
-// Role: DRIVER
-// ────────────────────────────────────────────────────────────
 export const getMyTrips = async (req, res) => {
   try {
     const driverID = req.user.userId;
 
-    // ดึง trips ของ driver คนนี้
     const tripsRes = await pool.query(`
       SELECT
         t.TripNo,
@@ -26,7 +20,6 @@ export const getMyTrips = async (req, res) => {
       return res.json({ success: true, data: [] });
     }
 
-    // ดึง orders ของแต่ละ trip พร้อมพิกัดและน้ำหนัก
     const trips = await Promise.all(
       tripsRes.rows.map(async (trip) => {
         const ordersRes = await pool.query(`
@@ -64,10 +57,6 @@ export const getMyTrips = async (req, res) => {
   }
 };
 
-// ────────────────────────────────────────────────────────────
-// GET /api/trips/all  — admin ดูทุก trip
-// Role: ADMIN
-// ────────────────────────────────────────────────────────────
 export const getAllTrips = async (req, res) => {
   try {
     const tripsRes = await pool.query(`

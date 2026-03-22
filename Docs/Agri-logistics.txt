@@ -1,19 +1,29 @@
 
--- 1. ตารางสิทธิ์การใช้งาน (ใช้ Code เป็น Key เช่น 'ADMIN', 'CUSTOMER', 'DRIVER')
+--ตารางสิทธิ์การใช้งาน
 CREATE TABLE roles (
     RoleID VARCHAR(6) NOT NULL,
     RoleName VARCHAR(15),
     CONSTRAINT pk_roles PRIMARY KEY (RoleID)
 );
 
--- 2. ตารางหมวดหมู่สินค้า (ใช้ Custom Key เช่น 'CAT-01' หมวดปุ๋ย)
+--ตารางหมวดหมู่สินค้า
 CREATE TABLE product_types (
     ProdTypeID VARCHAR(20) NOT NULL,
     ProdTypeName VARCHAR(100) NOT NULL,
     CONSTRAINT pk_product_types PRIMARY KEY (ProdTypeID)
 );
 
--- 3. ตารางรถขนส่ง (ใช้ ทะเบียนรถ เป็น Custom Key)
+--ตารางข้อมูลลูกค้า
+CREATE TABLE customers (
+  CusID      VARCHAR(20)  NOT NULL,
+  Name       VARCHAR(100) NOT NULL,
+  Phone      VARCHAR(20)  NOT NULL,
+  Created_at TIMESTAMP    DEFAULT NOW(),
+  CONSTRAINT pk_customers        PRIMARY KEY (CusID),
+  CONSTRAINT uq_customers_phone  UNIQUE (Phone)
+);
+
+--ตารางรถขนส่ง
 CREATE TABLE cars (
     CarNo VARCHAR(20) NOT NULL,
     MaxCapacity DECIMAL(10,2) NOT NULL,
@@ -21,10 +31,10 @@ CREATE TABLE cars (
     CONSTRAINT pk_cars PRIMARY KEY (CarNo)
 );
 
--- 4. ตารางผู้ใช้งาน (ใช้ Custom Key เช่น 'U00001')
+--ตารางผู้ใช้งานในระบบ
 CREATE TABLE users (
     UserID VARCHAR(20) NOT NULL,
-    RoleID VARCHAR(6) NOT NULL, -- FK ต้องชนิดเดียวกับ PK ของตารางแม่
+    RoleID VARCHAR(6) NOT NULL,
     Name VARCHAR(100) NOT NULL,
     Phone VARCHAR(20) NOT NULL,
     Password_hash VARCHAR(255) NOT NULL,
@@ -34,7 +44,7 @@ CREATE TABLE users (
     CONSTRAINT fk_users_roles FOREIGN KEY (RoleID) REFERENCES roles(RoleID) ON DELETE RESTRICT
 );
 
--- 5. ตารางสินค้า (ใช้ SKU เป็น Custom Key เช่น 'PRD-0001')
+--ตารางสินค้า
 CREATE TABLE products (
     ProdID VARCHAR(20) NOT NULL,
     ProdTypeID VARCHAR(20),
@@ -46,7 +56,7 @@ CREATE TABLE products (
     CONSTRAINT fk_products_product_types FOREIGN KEY (ProdTypeID) REFERENCES product_types(ProdTypeID) ON DELETE SET NULL
 );
 
--- 6. ตารางคำสั่งซื้อ (ใช้เลขที่บิลเป็น Custom Key เช่น 'ORD-2603-0001')
+--ตารางคำสั่งซื้อ
 CREATE TABLE orders (
     OrderNo VARCHAR(30) NOT NULL,
     CusID VARCHAR(20) NOT NULL,
@@ -62,10 +72,10 @@ CREATE TABLE orders (
     Created_at TIMESTAMP DEFAULT NOW(),
     
     CONSTRAINT pk_orders PRIMARY KEY (OrderNo),
-    CONSTRAINT fk_orders_users FOREIGN KEY (CusID) REFERENCES users(UserID) ON DELETE CASCADE
+    CONSTRAINT fk_orders_customers FOREIGN KEY (CusID) REFERENCES customers(CusID);
 );
 
--- 7. ตารางรายละเอียดคำสั่งซื้อ
+--ตารางรายละเอียดคำสั่งซื้อ
 CREATE TABLE order_details (
     id SERIAL, 
     OrderNo VARCHAR(30) NOT NULL,
@@ -78,7 +88,7 @@ CREATE TABLE order_details (
     CONSTRAINT fk_order_details_products FOREIGN KEY (ProdID) REFERENCES products(ProdID) ON DELETE RESTRICT
 );
 
--- 8. ตารางรอบการจัดส่ง (ใช้เลขที่ทริปเป็น Custom Key เช่น 'TRP-001')
+--ตารางรอบการจัดส่ง
 CREATE TABLE trips (
     TripNo VARCHAR(30) NOT NULL,
     DriverID VARCHAR(20) NOT NULL,
@@ -92,7 +102,7 @@ CREATE TABLE trips (
     CONSTRAINT fk_trips_cars FOREIGN KEY (CarNO) REFERENCES cars(CarNo) ON DELETE RESTRICT
 );
 
--- 9. ตารางเชื่อมรอบการจัดส่งกับคำสั่งซื้อ 
+--ตารางเชื่อมรอบการจัดส่งกับคำสั่งซื้อ 
 CREATE TABLE trip_orders (
     TripNo VARCHAR(30) NOT NULL,
     OrderNo VARCHAR(30) NOT NULL,
@@ -107,3 +117,64 @@ CREATE TABLE trip_orders (
 
 -- สร้าง Index สำหรับแผนที่
 CREATE INDEX idx_orders_delivery_location ON orders USING GIST (delivery_location);
+
+CREATE SEQUENCE IF NOT EXISTS user_id_seq  START 1;
+CREATE SEQUENCE IF NOT EXISTS trip_id_seq  START 1;
+CREATE SEQUENCE IF NOT EXISTS order_id_seq START 1;
+CREATE SEQUENCE IF NOT EXISTS cus_id_seq START 1;
+
+User: Admin ระบบ (0800000001) / admin1234
+User: สมชาย พนักงาน (0800000002) / staff1234
+User: สมหญิง พนักงาน (0800000003) / staff1234
+User: วิชัย คนขับ (0800000004) / driver1234
+User: สมศักดิ์ คนขับ (0800000005) / driver1234
+
+
+INSERT INTO product_types (ProdTypeID, ProdTypeName) VALUES
+  ('CAT-01', 'ปุ๋ย'),
+  ('CAT-02', 'ยาและสารเคมี'),
+  ('CAT-03', 'เมล็ดพันธุ์'),
+  ('CAT-04', 'อุปกรณ์การเกษตร'),
+  ('CAT-05', 'อาหารสัตว์')
+ON CONFLICT (ProdTypeID) DO NOTHING;
+
+--สินค้า
+INSERT INTO products (ProdID, ProdTypeID, Prodname, weight_per_unit, price, QTY) VALUES
+
+--ปุ๋ย
+('PRD-0001', 'CAT-01', 'ปุ๋ยยูเรีย 46-0-0 (ถุง 50 กก.)',        50.00,  650.00,  200),
+('PRD-0002', 'CAT-01', 'ปุ๋ยสูตร 16-20-0 (ถุง 50 กก.)',          50.00,  720.00,  150),
+('PRD-0003', 'CAT-01', 'ปุ๋ยสูตร 15-15-15 (ถุง 50 กก.)',         50.00,  780.00,  180),
+('PRD-0004', 'CAT-01', 'ปุ๋ยโพแทสเซียม 0-0-60 (ถุง 50 กก.)',    50.00,  850.00,  100),
+('PRD-0005', 'CAT-01', 'ปุ๋ยอินทรีย์ชีวภาพ (ถุง 25 กก.)',        25.00,  320.00,  300),
+('PRD-0006', 'CAT-01', 'ปุ๋ยน้ำชีวภาพ (แกลลอน 20 ล.)',           20.00,  280.00,  120),
+
+--ยาและสารเคมี
+('PRD-0007', 'CAT-02', 'ยาฆ่าแมลง ไซเพอร์เมทริน (1 ล.)',          1.20,  350.00,   80),
+('PRD-0008', 'CAT-02', 'สารกำจัดวัชพืช กลูโฟซิเนต (5 ล.)',        5.50,  890.00,   60),
+('PRD-0009', 'CAT-02', 'ยาฆ่าเชื้อรา แมนโคเซบ (1 กก.)',           1.10,  220.00,  150),
+('PRD-0010', 'CAT-02', 'ฮอร์โมนเร่งราก (500 มล.)',                 0.60,  180.00,  200),
+('PRD-0011', 'CAT-02', 'สารป้องกันกำจัดไรแดง (1 ล.)',              1.20,  420.00,   70),
+
+--เมล็ดพันธุ์
+('PRD-0012', 'CAT-03', 'เมล็ดข้าวโพดหวาน F1 (500 ก.)',            0.55,  320.00,  500),
+('PRD-0013', 'CAT-03', 'เมล็ดแตงโมไม่มีเมล็ด (100 เมล็ด)',        0.05,  280.00,  300),
+('PRD-0014', 'CAT-03', 'เมล็ดมะเขือเทศ (1,000 เมล็ด)',            0.10,  150.00,  400),
+('PRD-0015', 'CAT-03', 'เมล็ดผักบุ้ง (1 กก.)',                    1.00,   85.00,  600),
+('PRD-0016', 'CAT-03', 'หัวพันธุ์มันฝรั่ง (10 กก.)',             10.00,  450.00,  100),
+
+--อุปกรณ์การเกษตร
+('PRD-0017', 'CAT-04', 'สายยางรดน้ำ PVC (50 ม.)',                 4.50,  380.00,   80),
+('PRD-0018', 'CAT-04', 'หัวสปริงเกลอร์ (แพ็ค 10 ชิ้น)',           0.80,  220.00,  150),
+('PRD-0019', 'CAT-04', 'ตาข่ายกันแมลง (1x50 ม.)',                 3.20,  650.00,   50),
+('PRD-0020', 'CAT-04', 'ถุงเพาะชำ (แพ็ค 100 ใบ)',                 0.50,   95.00,  400),
+('PRD-0021', 'CAT-04', 'เชือกมัดต้นไม้ (ม้วน 100 ม.)',            0.80,  120.00,  300),
+
+--อาหารสัตว์
+('PRD-0022', 'CAT-05', 'อาหารไก่เนื้อ สตาร์ทเตอร์ (ถุง 30 กก.)', 30.00,  520.00,  120),
+('PRD-0023', 'CAT-05', 'อาหารไก่ไข่ (ถุง 30 กก.)',                30.00,  490.00,  100),
+('PRD-0024', 'CAT-05', 'อาหารหมูอนุบาล (ถุง 25 กก.)',             25.00,  680.00,   80),
+('PRD-0025', 'CAT-05', 'อาหารปลาดุก (ถุง 30 กก.)',                30.00,  560.00,   90),
+('PRD-0026', 'CAT-05', 'วิตามินรวมสัตว์ปีก (1 กก.)',               1.10,  350.00,  200)
+
+ON CONFLICT (ProdID) DO NOTHING;
