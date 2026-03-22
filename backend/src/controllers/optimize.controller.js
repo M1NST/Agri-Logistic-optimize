@@ -1,75 +1,100 @@
 import pool from '../config/db.js';
 
-const seqRes = await client.query(`SELECT nextval('trip_id_seq') as seq`);
-const tripNo = `TRP-${String(seqRes.rows[0].seq).padStart(5, '0')}`;
-
 export const optimizeTrips = async (req, res) => {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN'); 
+    await client.query('BEGIN');
 
+    // ── 1. ออเดอร์ที่รอจัดส่ง (เรียงหนักสุดก่อน) ─────────────────────────
     const ordersRes = await client.query(`
-    SELECT OrderNo, Total_weight, Delivery_lat, Delivery_lng
-    FROM orders WHERE Status = 'pending'
-    ORDER BY Total_weight DESC
+      SELECT OrderNo, Total_weight, Delivery_lat, Delivery_lng
+      FROM orders
+      WHERE Status = 'pending'
+      ORDER BY Total_weight DESC
     `);
     const pendingOrders = ordersRes.rows;
 
     if (pendingOrders.length === 0) {
-      return res.json({ success: true, message: "ไม่มีออเดอร์ค้างส่ง" });
+      await client.query('ROLLBACK');
+      return res.json({ success: true, message: 'ไม่มีออเดอร์ค้างส่ง' });
     }
 
+    // ── 2. รถทุกคันที่ active (ไม่ต้องมี DriverID) ────────────────────────
     const carsRes = await client.query(`
-      SELECT CarNo, MaxCapacity 
-      FROM cars 
-      WHERE Status = 'active' 
+      SELECT CarNo, MaxCapacity
+      FROM cars
+      WHERE Status = 'active'
       ORDER BY MaxCapacity DESC
     `);
     const availableCars = carsRes.rows;
 
-    tripsDetail: activeTrips.map(t => ({
-    tripNo: t.tripNo,
-    carNo: t.carNo,
-    usedCapacity: `${t.currentWeight} / ${t.maxCapacity} kg`,
-    orderCount: t.orders.length,
-    orderNos: t.orders,                    
-    coords: t.orders.map(orderNo => {      
-    const o = pendingOrders.find(p => p.orderno === orderNo);
-    return [parseFloat(o.delivery_lng), parseFloat(o.delivery_lat)];
-  })
-}))
+    if (availableCars.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'ไม่มีรถพร้อมใช้งาน' });
+    }
 
-    let unassignedOrders = [];
+    // ── 3. Driver ทั้งหมด ──────────────────────────────────────────────────
+    const driversRes = await client.query(`
+      SELECT UserID, Name
+      FROM users
+      WHERE RoleID = 'DRIVER'
+      ORDER BY UserID
+    `);
+    const drivers = driversRes.rows;
 
-    for (let order of pendingOrders) {
-      let isPlaced = false;
+    if (drivers.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'ไม่มีคนขับในระบบ' });
+    }
+
+    // ── 4. Bin Packing — จัดออเดอร์ลงรถก่อน (ยังไม่ assign driver) ────────
+    const tripSlots = availableCars.map(car => ({
+      carNo:         car.carno,
+      maxCapacity:   parseFloat(car.maxcapacity),
+      currentWeight: 0,
+      orders:        [],
+    }));
+
+    const unassignedOrders = [];
+
+    for (const order of pendingOrders) {
       const orderWeight = parseFloat(order.total_weight);
+      let placed = false;
 
-      for (let trip of tripsDetail) {
-        if (trip.currentWeight + orderWeight <= trip.maxCapacity) {
-          trip.orders.push(order.orderno);
-          trip.currentWeight += orderWeight;
-          isPlaced = true;
-          break; 
+      for (const slot of tripSlots) {
+        if (slot.currentWeight + orderWeight <= slot.maxCapacity) {
+          slot.orders.push(order.orderno);
+          slot.currentWeight += orderWeight;
+          placed = true;
+          break;
         }
       }
 
-      if (!isPlaced) {
-        unassignedOrders.push(order.orderno);
-      }
+      if (!placed) unassignedOrders.push(order.orderno);
     }
 
-    const activeTrips = tripsDetail.filter(t => t.orders.length > 0);
-    const defaultDriver = 'U00001'; 
+    // ── 5. เฉพาะ slot ที่มีออเดอร์ → assign driver วนรอบ ──────────────────
+    const activeSlots = tripSlots.filter(t => t.orders.length > 0);
 
-    for (let trip of activeTrips) {
+    const seqRes  = await client.query(`SELECT nextval('trip_id_seq') as seq`);
+    const seqBase = parseInt(seqRes.rows[0].seq);
+
+    const activeTrips = activeSlots.map((slot, i) => ({
+      ...slot,
+      tripNo:     `TRP-${String(seqBase + i).padStart(5, '0')}`,
+      driverID:   drivers[i % drivers.length].userid,    // วนรอบ
+      driverName: drivers[i % drivers.length].name,
+    }));
+
+    // ── 6. INSERT trips + trip_orders + update order status ────────────────
+    for (const trip of activeTrips) {
       await client.query(`
         INSERT INTO trips (TripNo, DriverID, CarNo, Total_weight, Status)
         VALUES ($1, $2, $3, $4, 'planned')
-      `, [trip.tripNo, defaultDriver, trip.carNo, trip.currentWeight]);
+      `, [trip.tripNo, trip.driverID, trip.carNo, trip.currentWeight]);
 
       let sequence = 1;
-      for (let orderNo of trip.orders) {
+      for (const orderNo of trip.orders) {
         await client.query(`
           INSERT INTO trip_orders (TripNo, OrderNo, delivery_sequence)
           VALUES ($1, $2, $3)
@@ -78,7 +103,7 @@ export const optimizeTrips = async (req, res) => {
         await client.query(`
           UPDATE orders SET Status = 'assigned' WHERE OrderNo = $1
         `, [orderNo]);
-        
+
         sequence++;
       }
     }
@@ -87,23 +112,33 @@ export const optimizeTrips = async (req, res) => {
 
     res.json({
       success: true,
-      message: "จัดรถสำเร็จ!",
+      message: 'จัดรถสำเร็จ!',
       summary: {
-        totalTripsCreated: activeTrips.length,
+        totalTripsCreated:     activeTrips.length,
+        totalDriversUsed:      [...new Set(activeTrips.map(t => t.driverID))].length,
         tripsDetail: activeTrips.map(t => ({
-          tripNo: t.tripNo,
-          carNo: t.carNo,
+          tripNo:       t.tripNo,
+          carNo:        t.carNo,
+          driverID:     t.driverID,
+          driverName:   t.driverName,
           usedCapacity: `${t.currentWeight} / ${t.maxCapacity} kg`,
-          orderCount: t.orders.length
+          orderCount:   t.orders.length,
+          orderNos:     t.orders,
+          coords:       t.orders
+            .map(orderNo => {
+              const o = pendingOrders.find(p => p.orderno === orderNo);
+              return o ? [parseFloat(o.delivery_lng), parseFloat(o.delivery_lat)] : null;
+            })
+            .filter(Boolean),
         })),
         unassignedOrdersCount: unassignedOrders.length,
-        unassignedOrdersList: unassignedOrders
-      }
+        unassignedOrdersList:  unassignedOrders,
+      },
     });
 
   } catch (error) {
-    await client.query('ROLLBACK'); 
-    console.error(error);
+    await client.query('ROLLBACK');
+    console.error('optimizeTrips Error:', error);
     res.status(500).json({ success: false, message: error.message });
   } finally {
     client.release();

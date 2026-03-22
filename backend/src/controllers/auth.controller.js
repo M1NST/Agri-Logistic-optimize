@@ -13,7 +13,7 @@ export const register = async (req, res) => {
     }
 
     const userExists = await pool.query(
-      "SELECT * FROM users WHERE Phone = $1",
+      "SELECT UserID FROM users WHERE Phone = $1",
       [Phone],
     );
     if (userExists.rows.length > 0) {
@@ -21,25 +21,14 @@ export const register = async (req, res) => {
         .status(400)
         .json({ success: false, message: "เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว" });
     }
-    const lastUserResult = await pool.query(
-      "SELECT UserID FROM users ORDER BY UserID DESC LIMIT 1",
-    );
-    let newUserID = "U00001";
-
-    if (lastUserResult.rows.length > 0) {
-      const lastID = lastUserResult.rows[0].userid;
-      const lastNumber = parseInt(lastID.substring(1));
-      const nextNumber = lastNumber + 1;
-      newUserID = "U" + nextNumber.toString().padStart(5, "0");
-    }
 
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(Password, saltRounds);
 
     const query = `
-    INSERT INTO users (UserID, RoleID, Name, Phone, Password_hash)
-    VALUES ('U' || LPAD(nextval('user_id_seq')::TEXT, 5, '0'), 'CUST', $1, $2, $3)
-    RETURNING UserID, Name, RoleID;
+      INSERT INTO users (UserID, RoleID, Name, Phone, Password_hash)
+      VALUES ('U' || LPAD(nextval('user_id_seq')::TEXT, 5, '0'), 'CUST', $1, $2, $3)
+      RETURNING UserID, Name, RoleID;
     `;
     const result = await pool.query(query, [Name, Phone, hashedPassword]);
 
@@ -65,9 +54,9 @@ export const login = async (req, res) => {
     }
 
     const query = `
-      SELECT u.*, r.RoleName 
-      FROM users u 
-      JOIN roles r ON u.RoleID = r.RoleID 
+      SELECT u.*, r.RoleName
+      FROM users u
+      JOIN roles r ON u.RoleID = r.RoleID
       WHERE u.Phone = $1
     `;
     const result = await pool.query(query, [phone]);
@@ -75,7 +64,10 @@ export const login = async (req, res) => {
     if (result.rows.length === 0) {
       return res
         .status(401)
-        .json({ success: false, message: "ไม่พบเบอร์โทรศัพท์หรือรหัสผ่านไม่ถูกต้อง" });
+        .json({
+          success: false,
+          message: "ไม่พบเบอร์โทรศัพท์หรือรหัสผ่านไม่ถูกต้อง",
+        });
     }
 
     const user = result.rows[0];
@@ -84,11 +76,13 @@ export const login = async (req, res) => {
     if (!isMatch) {
       return res
         .status(401)
-        .json({ success: false, message: "เบอร์โทรศัพท์หรือรหัสผ่านไม่ถูกต้อง" });
+        .json({
+          success: false,
+          message: "เบอร์โทรศัพท์หรือรหัสผ่านไม่ถูกต้อง",
+        });
     }
 
     if (!process.env.JWT_SECRET) throw new Error("JWT_SECRET is not defined");
-    const secretKey = process.env.JWT_SECRET;
 
     const token = jwt.sign(
       {
@@ -96,7 +90,7 @@ export const login = async (req, res) => {
         role: user.roleid,
         name: user.name,
       },
-      secretKey,
+      process.env.JWT_SECRET,
       { expiresIn: "1d" },
     );
 
