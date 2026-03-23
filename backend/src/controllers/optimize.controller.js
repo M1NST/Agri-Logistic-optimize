@@ -5,7 +5,6 @@ export const optimizeTrips = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // ── 1. ออเดอร์ที่รอจัดส่ง (เรียงหนักสุดก่อน) ─────────────────────────
     const ordersRes = await client.query(`
       SELECT OrderNo, Total_weight, Delivery_lat, Delivery_lng
       FROM orders
@@ -19,7 +18,6 @@ export const optimizeTrips = async (req, res) => {
       return res.json({ success: true, message: 'ไม่มีออเดอร์ค้างส่ง' });
     }
 
-    // ── 2. รถทุกคันที่ active (ไม่ต้องมี DriverID) ────────────────────────
     const carsRes = await client.query(`
       SELECT CarNo, MaxCapacity
       FROM cars
@@ -33,7 +31,6 @@ export const optimizeTrips = async (req, res) => {
       return res.status(400).json({ success: false, message: 'ไม่มีรถพร้อมใช้งาน' });
     }
 
-    // ── 3. Driver ทั้งหมด ──────────────────────────────────────────────────
     const driversRes = await client.query(`
       SELECT UserID, Name
       FROM users
@@ -47,7 +44,6 @@ export const optimizeTrips = async (req, res) => {
       return res.status(400).json({ success: false, message: 'ไม่มีคนขับในระบบ' });
     }
 
-    // ── 4. Bin Packing — จัดออเดอร์ลงรถก่อน (ยังไม่ assign driver) ────────
     const tripSlots = availableCars.map(car => ({
       carNo:         car.carno,
       maxCapacity:   parseFloat(car.maxcapacity),
@@ -73,7 +69,6 @@ export const optimizeTrips = async (req, res) => {
       if (!placed) unassignedOrders.push(order.orderno);
     }
 
-    // ── 5. เฉพาะ slot ที่มีออเดอร์ → assign driver วนรอบ ──────────────────
     const activeSlots = tripSlots.filter(t => t.orders.length > 0);
 
     const seqRes  = await client.query(`SELECT nextval('trip_id_seq') as seq`);
@@ -82,11 +77,10 @@ export const optimizeTrips = async (req, res) => {
     const activeTrips = activeSlots.map((slot, i) => ({
       ...slot,
       tripNo:     `TRP-${String(seqBase + i).padStart(5, '0')}`,
-      driverID:   drivers[i % drivers.length].userid,    // วนรอบ
+      driverID:   drivers[i % drivers.length].userid,  
       driverName: drivers[i % drivers.length].name,
     }));
 
-    // ── 6. INSERT trips + trip_orders + update order status ────────────────
     for (const trip of activeTrips) {
       await client.query(`
         INSERT INTO trips (TripNo, DriverID, CarNo, Total_weight, Status)

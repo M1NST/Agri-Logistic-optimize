@@ -1,17 +1,19 @@
 import pool from '../config/db.js';
 
 export const insertOrderWithItems = async (orderData) => {
-  const { CusID, items, lat, lng, distanceMeters, isFree } = orderData;
+  const { CusID, items, lat, lng, distanceMeters, isFree, deliveryFee = 0 } = orderData;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
     const cusCheck = await client.query(
       'SELECT CusID FROM customers WHERE CusID = $1', [CusID]
     );
     if (cusCheck.rows.length === 0) {
       throw new Error(`ไม่พบลูกค้า CusID: ${CusID}`);
     }
+
     const prodIDs  = items.map(i => i.ProdID);
     const prodsRes = await client.query(
       `SELECT ProdID, Prodname, price, weight_per_unit, QTY
@@ -23,6 +25,7 @@ export const insertOrderWithItems = async (orderData) => {
 
     const prodMap = {};
     for (const row of prodsRes.rows) prodMap[row.prodid] = row;
+
     for (const item of items) {
       const prod = prodMap[item.ProdID];
       if (!prod) throw new Error(`ไม่พบสินค้า ProdID: ${item.ProdID}`);
@@ -47,7 +50,8 @@ export const insertOrderWithItems = async (orderData) => {
       };
     });
 
-    const distanceKm = parseFloat((distanceMeters / 1000).toFixed(2));
+    const distanceKm   = parseFloat((distanceMeters / 1000).toFixed(2));
+    const sumTotal    = totalPrice + deliveryFee;
 
     const now      = new Date();
     const datePart = now.toISOString().slice(2, 10).replace(/-/g, '');
@@ -59,17 +63,18 @@ export const insertOrderWithItems = async (orderData) => {
          OrderNo, CusID,
          Total_weight, Total_price,
          Delivery_location, Delivery_lat, Delivery_lng,
-         Distance_from_store, Is_free_delivery,
+         Distance_from_store, Is_free_delivery, Delivery_fee,
          Status, Payment_status
        ) VALUES (
          $1, $2, $3, $4,
          ST_SetSRID(ST_MakePoint($6, $5), 4326), $5, $6,
-         $7, $8,
+         $7, $8, $9,
          'pending', 'pending'
        ) RETURNING *`,
-      [OrderNo, CusID, totalWeight, totalPrice, lat, lng, distanceKm, isFree]
+      [OrderNo, CusID, totalWeight, sumTotal, lat, lng, distanceKm, isFree, deliveryFee]
     );
     const order = orderRes.rows[0];
+
     const detailRows = [];
     for (const line of lineItems) {
       const detRes = await client.query(

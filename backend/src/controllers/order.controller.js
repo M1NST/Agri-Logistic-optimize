@@ -32,6 +32,7 @@ export const createOrder = async (req, res) => {
 
     const distanceMeters = await LocationService.calculateDistance(lat, lng);
     const isFree = LocationService.isFreeDelivery(distanceMeters);
+    const deliveryFee    = LocationService.calculateDeliveryFee(distanceMeters);
 
     const { order, details } = await insertOrderWithItems({
       CusID,
@@ -40,6 +41,7 @@ export const createOrder = async (req, res) => {
       lng,
       distanceMeters,
       isFree,
+      deliveryFee
     });
 
     res.status(201).json({
@@ -51,6 +53,8 @@ export const createOrder = async (req, res) => {
         delivery: {
           distanceKm: parseFloat(order.distance_from_store),
           isFree: order.is_free_delivery,
+          deliveryFee: parseFloat(order.delivery_fee ?? 0),
+
         },
       },
     });
@@ -165,10 +169,15 @@ export const checkDeliveryFee = async (req, res) => {
     }
     const distanceMeters = await LocationService.calculateDistance(lat, lng);
     const isFree = LocationService.isFreeDelivery(distanceMeters);
+    const distanceKm = parseFloat((distanceMeters / 1000).toFixed(2));
+    const deliveryFee = LocationService.calculateDeliveryFee(distanceMeters);
     res.json({
       success: true,
-      distanceKm: parseFloat((distanceMeters / 1000).toFixed(2)),
+      distanceKm,
       isFree,
+      deliveryFee: deliveryFee,
+      freeRadiusKm: LocationService.FREE_RADIUS_KM,
+      feePerKm: Number(process.env.DELIVERY_FEE_PER_KM),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

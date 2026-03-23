@@ -2,47 +2,6 @@ import pool from "../config/db.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
-export const register = async (req, res) => {
-  try {
-    const { Name, Phone, Password } = req.body;
-
-    if (!Name || !Phone || !Password) {
-      return res
-        .status(400)
-        .json({ success: false, message: "กรุณากรอกข้อมูลให้ครบถ้วน" });
-    }
-
-    const userExists = await pool.query(
-      "SELECT UserID FROM users WHERE Phone = $1",
-      [Phone],
-    );
-    if (userExists.rows.length > 0) {
-      return res
-        .status(400)
-        .json({ success: false, message: "เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว" });
-    }
-
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(Password, saltRounds);
-
-    const query = `
-      INSERT INTO users (UserID, RoleID, Name, Phone, Password_hash)
-      VALUES ('U' || LPAD(nextval('user_id_seq')::TEXT, 5, '0'), 'CUST', $1, $2, $3)
-      RETURNING UserID, Name, RoleID;
-    `;
-    const result = await pool.query(query, [Name, Phone, hashedPassword]);
-
-    res.status(201).json({
-      success: true,
-      message: "ลงทะเบียนสมาชิกสำเร็จ",
-      data: result.rows[0],
-    });
-  } catch (error) {
-    console.error("Register Error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
 export const login = async (req, res) => {
   try {
     const { phone, password } = req.body;
