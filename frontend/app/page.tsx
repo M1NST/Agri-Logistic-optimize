@@ -1,373 +1,285 @@
 "use client";
 
-import { useEffect, useRef, useState, FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css'; // อย่าลืม import css ของ mapbox
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
 
-// กำหนด Type ให้กับข้อมูลออเดอร์
+mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN as string;
+const API_URL   = process.env.NEXT_PUBLIC_API_URL;
+const STORE_LAT = parseFloat(process.env.NEXT_PUBLIC_STORE_LAT || "8.1650");
+const STORE_LNG = parseFloat(process.env.NEXT_PUBLIC_STORE_LNG || "99.6600");
+const COLORS    = ["#3b82f6", "#a855f7", "#f97316", "#ec4899", "#06b6d4", "#84cc16"];
+
+interface OrderItem { prodname: string; quantity: number; price_at_that_time: number; }
 interface Order {
-  orderno?: string;
-  OrderNo?: string;
-  total_weight?: string | number;
-  Total_weight?: string | number;
-  distance_from_store?: string | number;
-  Distance_from_store?: string | number;
-  delivery_lat?: number;
-  Delivery_lat?: number;
-  delivery_lng?: number;
-  Delivery_lng?: number;
-  delivery_location?: { coordinates: [number, number] };
+  orderno: string; cusid: string; customer_name: string; customer_phone: string;
+  total_weight: number; total_price: number; status: string;
+  distance_from_store: number; is_free_delivery: boolean;
+  delivery_lat: number; delivery_lng: number;
+  payment_status: string; items: OrderItem[];
+}
+interface TripDetail {
+  tripNo: string; carNo: string; driverID: string;
+  usedCapacity: string; orderCount: number;
+  orderNos: string[]; coords: [number, number][];
 }
 
-// ดึง Key จากไฟล์ .env.local
-mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN as string;
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
-const STORE_LAT = parseFloat(process.env.NEXT_PUBLIC_STORE_LAT || '8.1650');
-const STORE_LNG = parseFloat(process.env.NEXT_PUBLIC_STORE_LNG || '99.6600');
+const STATUS: Record<string, { label: string; bg: string; color: string }> = {
+  pending:   { label: "รอส่ง",       bg: "#2d1a00", color: "#d29922" },
+  assigned:  { label: "จัดรถแล้ว",   bg: "#0d1a2d", color: "#60a5fa" },
+  delivered: { label: "ส่งแล้ว",     bg: "#0d2818", color: "#4ade80" },
+};
 
-export default function Home() {
-  const router = useRouter();
-  const mapContainer = useRef<HTMLDivElement | null>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
-  
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [isOptimizing, setIsOptimizing] = useState<boolean>(false);
+const fmt = (n: number) => Number(n).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  // State สำหรับฟอร์ม
-  const [formData, setFormData] = useState({
-    CusID: 'U00001',
-    Total_weight: '',
-    lat: '',
-    lng: ''
-  });
+export default function AdminPage() {
+  const router       = useRouter();
+  const mapRef       = useRef<HTMLDivElement>(null);
+  const map          = useRef<mapboxgl.Map | null>(null);
+  const markersRef   = useRef<mapboxgl.Marker[]>([]);
 
-  // 🔒 1. ตรวจสอบสิทธิ์ (ต้องเป็น ADMIN เท่านั้น)
+  const [orders,       setOrders]       = useState<Order[]>([]);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizeResult, setOptimizeResult] = useState<TripDetail[] | null>(null);
+  const [statusFilter,  setStatusFilter]  = useState<string>("all");
+  const [expandOrder,   setExpandOrder]   = useState<string | null>(null);
+
+  // auth check
   useEffect(() => {
     const token = localStorage.getItem("token");
-    const userStr = localStorage.getItem("user");
-    
-    if (!token || !userStr) {
-      router.push("/login");
-      return;
-    }
-
-    const user = JSON.parse(userStr);
-    if (user.role !== 'ADMIN') {
-      alert("คุณไม่มีสิทธิ์เข้าถึงหน้านี้ (เฉพาะผู้ดูแลระบบ)");
-      router.push("/login"); // หรือเด้งไปหน้า Customer/Driver ตามเหมาะสม
-    }
+    const usr   = localStorage.getItem("user");
+    if (!token || !usr) { router.push("/login"); return; }
+    if (JSON.parse(usr).role !== "ADMIN") { router.push("/login"); return; }
   }, [router]);
 
-  // 2. ฟังก์ชันดึงข้อมูลจาก Backend
+  // fetch orders
   const fetchOrders = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/orders/all`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const result = await res.json();
-      if (result.success) setOrders(result.data);
-    } catch (error) {
-      console.error('ดึงข้อมูลออเดอร์ล้มเหลว:', error);
-    }
+    const token = localStorage.getItem("token");
+    const r     = await fetch(`${API_URL}/orders/all`, { headers: { Authorization: `Bearer ${token}` } });
+    const d     = await r.json();
+    if (d.success) setOrders(d.data);
   };
 
-  // 3. ฟังก์ชันไปขอเส้นทางถนนจริงจาก Mapbox
-  const getRoute = async (coordinates: number[][]) => {
-    const query = coordinates.map(c => `${c[0]},${c[1]}`).join(';');
-    const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${query}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
-    
-    const response = await fetch(url);
-    const data = await response.json();
-    return data.routes[0].geometry; 
-  };
-
-  // 4. ฟังก์ชันวาดเส้นลงบนแผนที่
-  const drawRouteOnMap = async (tripId: string, coordinates: number[][], color: string) => {
-    if (!map.current) return;
-
-    try {
-      const geometry = await getRoute(coordinates);
-
-      if (map.current.getSource(tripId)) {
-        map.current.removeLayer(tripId);
-        map.current.removeSource(tripId);
-      }
-
-      map.current.addSource(tripId, {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          properties: {},
-          geometry: geometry
-        }
-      });
-
-      map.current.addLayer({
-        id: tripId,
-        type: 'line',
-        source: tripId,
-        layout: {
-          'line-join': 'round',
-          'line-cap': 'round'
-        },
-        paint: {
-          'line-color': color,
-          'line-width': 5,
-          'line-opacity': 0.8
-        }
-      });
-    } catch (error) {
-      console.error(`วาดเส้นทาง ${tripId} ล้มเหลว:`, error);
-    }
-  };
-
-  // 5. โหลดแผนที่ครั้งแรก
+  // initial map setup
   useEffect(() => {
-    if (map.current || !mapContainer.current) return; 
-
-    const initMap = async () => {
-      try {
-        // ใช้พิกัดจาก .env เป็นศูนย์กลาง
-        map.current = new mapboxgl.Map({
-          container: mapContainer.current!,
-          style: 'mapbox://styles/mapbox/satellite-streets-v12',
-          center: [STORE_LNG, STORE_LAT],
-          zoom: 14
-        });
-
-        const storePopup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
-          <div class="p-2 text-center">
-            <h3 class="font-bold text-green-800 text-lg">🏪 ร้านของเรา</h3>
-          </div>
-        `);
-
-        new mapboxgl.Marker({ color: '#16a34a' }) 
-          .setLngLat([STORE_LNG, STORE_LAT])
-          .setPopup(storePopup)
-          .addTo(map.current);
-
-        fetchOrders(); 
-
-      } catch (error) {
-        console.error("โหลดแผนที่ล้มเหลว:", error);
-      }
-    };
-
-    initMap();
+    if (map.current || !mapRef.current) return;
+    map.current = new mapboxgl.Map({
+      container: mapRef.current,
+      style: "mapbox://styles/mapbox/satellite-streets-v12",
+      center: [STORE_LNG, STORE_LAT],
+      zoom: 12,
+    });
+    map.current.addControl(new mapboxgl.NavigationControl(), "top-right");
+    new mapboxgl.Marker({ color: "#22c55e" })
+      .setLngLat([STORE_LNG, STORE_LAT])
+      .setPopup(new mapboxgl.Popup({ offset: 20 }).setHTML(`<b style="color:#22c55e">🏪 ร้านของเรา</b>`))
+      .addTo(map.current);
+    fetchOrders();
   }, []);
 
-  // 6. อัปเดตหมุดออเดอร์เมื่อ State เปลี่ยน
+  //update markers when orders change
   useEffect(() => {
     if (!map.current) return;
-
-    markersRef.current.forEach(marker => marker.remove());
+    markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
 
-    orders.forEach((order) => {
-      const lat = order.delivery_lat || order.Delivery_lat || order.delivery_location?.coordinates?.[1];
-      const lng = order.delivery_lng || order.Delivery_lng || order.delivery_location?.coordinates?.[0];
-
-      if (lat && lng) {
-        const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
-          <div class="p-2">
-            <h3 class="font-bold text-green-700">📦 ${order.orderno || order.OrderNo}</h3>
-            <p class="text-sm m-0">น้ำหนัก: ${order.total_weight || order.Total_weight} กก.</p>
-            <p class="text-sm m-0 text-blue-600">ระยะทาง: ${order.distance_from_store || order.Distance_from_store} กม.</p>
-          </div>
-        `);
-
-        const marker = new mapboxgl.Marker({ color: '#f97316' })
-          .setLngLat([lng, lat])
-          .setPopup(popup)
-          .addTo(map.current!);
-          
-        markersRef.current.push(marker);
-      }
+    orders.forEach(order => {
+      if (!order.delivery_lat || !order.delivery_lng) return;
+      const st = STATUS[order.status] ?? STATUS.pending;
+      const popup = new mapboxgl.Popup({ offset: 22, closeButton: false }).setHTML(`
+        <div style="font-size:12px;line-height:1.7;min-width:160px">
+          <b style="color:#3b82f6">${order.orderno}</b><br>
+          👤 ${order.customer_name ?? "-"} · ${order.customer_phone ?? ""}<br>
+          ⚖️ ${order.total_weight} กก. · ฿${fmt(order.total_price)}<br>
+          📍 ${order.distance_from_store} กม. ${order.is_free_delivery ? "· ฟรีค่าส่ง ✅" : ""}<br>
+          <span style="color:${st.color}">${st.label}</span>
+        </div>
+      `);
+      const marker = new mapboxgl.Marker({ color: order.status === "delivered" ? "#22c55e" : order.status === "assigned" ? "#3b82f6" : "#f97316" })
+        .setLngLat([order.delivery_lng, order.delivery_lat])
+        .setPopup(popup)
+        .addTo(map.current!);
+      markersRef.current.push(marker);
     });
   }, [orders]);
 
-  // 7. จัดการฟอร์มสร้างออเดอร์
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setIsLoading(true);
-
+  //draw route on activeTrip change
+  const drawRoute = async (id: string, coords: number[][], color: string) => {
+    if (!map.current) return;
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/orders/create`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          CusID: formData.CusID,
-          Total_weight: parseFloat(formData.Total_weight),
-          lat: parseFloat(formData.lat),
-          lng: parseFloat(formData.lng)
-        })
-      });
+      const url  = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords.map(c => c.join(",")).join(";")
+        }?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+      const res  = await fetch(url);
+      const data = await res.json();
+      if (!data.routes?.[0]) return;
 
-      const result = await res.json();
-      if (result.success) {
-        alert('✅ สร้างออเดอร์สำเร็จ!');
-        setFormData({ CusID: 'U00001', Total_weight: '', lat: '', lng: '' });
-        fetchOrders(); 
-        map.current?.flyTo({ center: [parseFloat(formData.lng), parseFloat(formData.lat)], zoom: 13 });
-      } else {
-        alert('❌ เกิดข้อผิดพลาด: ' + result.message);
+      if (map.current.getSource(id)) {
+        map.current.removeLayer(`${id}-s`);
+        map.current.removeLayer(id);
+        map.current.removeSource(id);
       }
-    } catch (error) {
-      alert('❌ ไม่สามารถเชื่อมต่อ Backend ได้');
-    } finally {
-      setIsLoading(false);
-    }
+      map.current.addSource(id, { type: "geojson", data: { type: "Feature", properties: {}, geometry: data.routes[0].geometry } });
+      map.current.addLayer({ id: `${id}-s`, type: "line", source: id,
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#000", "line-width": 8, "line-opacity": 0.3, "line-blur": 5 } });
+      map.current.addLayer({ id, type: "line", source: id,
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": color, "line-width": 4, "line-opacity": 0.9 } });
+    } catch (e) { console.error(e); }
   };
 
-  // 8. จัดการปุ่ม Optimize
+  // optimize route
   const handleOptimize = async () => {
-    setIsOptimizing(true);
+    setIsOptimizing(true); setOptimizeResult(null);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/optimize/run`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json' 
-        }
+      const r     = await fetch(`${API_URL}/optimize/run`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
-      
-      const result = await res.json();
-      
-      if (result.success) {
-        alert('🚚 จัดรถสำเร็จ!');
-        fetchOrders(); // อัปเดตสถานะออเดอร์
-        
-        // ---------------------------------------------------------
-        // ตัวอย่างการแสดงเส้นทาง (สามารถนำข้อมูลที่ได้จาก API มาประยุกต์ต่อได้)
-        // ---------------------------------------------------------
-        const storeCoords = [STORE_LNG, STORE_LAT]; 
-        
-        // คันที่ 1: รถ 6 ล้อ (สีน้ำเงิน)
-        const truck1Coords = [
-          storeCoords, 
-          [STORE_LNG + 0.005, STORE_LAT + 0.005], 
-          [STORE_LNG - 0.015, STORE_LAT - 0.015], 
-          storeCoords  
-        ];
-
-        // คันที่ 2: รถกระบะ (สีม่วง)
-        const pickup1Coords = [
-          storeCoords,
-          [STORE_LNG + 0.02, STORE_LAT + 0.02],
-          [STORE_LNG + 0.03, STORE_LAT + 0.03]
-        ];
-
-        await drawRouteOnMap('route-truck1', truck1Coords, '#3b82f6');
-        await drawRouteOnMap('route-pickup1', pickup1Coords, '#a855f7');
-        
+      const d = await r.json();
+      if (d.success) {
+        setOptimizeResult(d.summary.tripsDetail);
+        fetchOrders();
+        for (let i = 0; i < d.summary.tripsDetail.length; i++) {
+          const trip = d.summary.tripsDetail[i];
+          if (!trip.coords?.length) continue;
+          await drawRoute(`route-${i}`, [[STORE_LNG, STORE_LAT], ...trip.coords, [STORE_LNG, STORE_LAT]], COLORS[i % COLORS.length]);
+        }
       } else {
-        alert('ℹ️ ' + result.message);
+        alert("ℹ️ " + d.message);
       }
-    } catch (error) {
-      console.error(error);
-      alert('❌ ไม่สามารถเชื่อมต่อ API จัดรถได้');
-    } finally {
-      setIsOptimizing(false);
-    }
+    } finally { setIsOptimizing(false); }
   };
+
+  // derived data
+  const filtered    = statusFilter === "all" ? orders : orders.filter(o => o.status === statusFilter);
+  const pendingCnt  = orders.filter(o => o.status === "pending").length;
+  const totalWeight = orders.filter(o => o.status === "pending").reduce((s, o) => s + Number(o.total_weight), 0);
 
   return (
-    <main className="relative w-full h-screen bg-gray-50 overflow-hidden">
-      {/* แผนที่ Mapbox (แก้ไข div ซ้ำซ้อนให้เหลืออันเดียว) */}
-      <div 
-        ref={mapContainer} 
-        className="absolute inset-0 w-full h-full" 
-      />
-      
-      {/* UI แผงควบคุม (ด้านซ้าย) */}
-      <div className="absolute top-4 left-4 z-10 w-80 bg-white/95 backdrop-blur-sm p-6 rounded-2xl shadow-2xl border border-gray-100 max-h-[95vh] overflow-y-auto">
-        
-        <div className="flex justify-between items-start mb-2">
-          <h1 className="text-2xl font-black text-green-800 tracking-tight flex items-center gap-2">
-            🌱 Agri-Logistics
-          </h1>
-          <button 
-            onClick={() => {
-              localStorage.removeItem("token");
-              localStorage.removeItem("user");
-              router.push("/login");
-            }}
-            className="text-xs text-red-500 font-bold hover:underline mt-1"
-          >
-            ออกจากระบบ
+    <main style={{ display: "flex", height: "100vh", overflow: "hidden", background: "#0d1117", fontFamily: "'IBM Plex Sans Thai','IBM Plex Sans',sans-serif", color: "#e6edf3" }}>
+      <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet"/>
+
+      {/* ── Left panel ── */}
+      <div style={{ width: 340, display: "flex", flexDirection: "column", borderRight: "1px solid #21262d", overflow: "hidden", flexShrink: 0 }}>
+
+        {/* Header */}
+        <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid #21262d", background: "#161b22" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontFamily: "'IBM Plex Mono'", fontWeight: 500, fontSize: 14, color: "#3fb950" }}>🌱 Agri-Logistics</span>
+            <button onClick={() => { localStorage.clear(); router.push("/login"); }}
+              style={{ fontSize: 11, color: "#f85149", background: "none", border: "none", cursor: "pointer" }}>ออกจากระบบ</button>
+          </div>
+
+          {/* stats */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+            {[
+              { label: "รอจัดส่ง",   value: pendingCnt,               color: "#d29922" },
+              { label: "ทั้งหมด",    value: orders.length,            color: "#e6edf3" },
+              { label: "น้ำหนักรวม", value: `${totalWeight.toFixed(0)} กก.`, color: "#60a5fa" },
+            ].map(s => (
+              <div key={s.label} style={{ background: "#0d1117", borderRadius: 8, padding: "8px 10px", border: "1px solid #21262d" }}>
+                <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 16, fontWeight: 500, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 10, color: "#6e7681", marginTop: 2 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* optimize button */}
+          <button onClick={handleOptimize} disabled={isOptimizing || pendingCnt === 0}
+            style={{ width: "100%", padding: "10px 0", borderRadius: 9, border: `1px solid ${pendingCnt > 0 ? "#1f6feb" : "#30363d"}`, background: pendingCnt > 0 && !isOptimizing ? "linear-gradient(135deg,#1f6feb,#1958b7)" : "#21262d", color: pendingCnt > 0 && !isOptimizing ? "#fff" : "#484f58", fontWeight: 700, fontSize: 13, cursor: pendingCnt > 0 && !isOptimizing ? "pointer" : "not-allowed", transition: "all .2s" }}>
+            {isOptimizing ? "⚙️ กำลังจัดรถ..." : `🚚 จัดรถ Optimize (${pendingCnt} orders)`}
           </button>
         </div>
-        
-        <p className="text-gray-500 text-sm font-medium mb-6 mt-1">
-          ระบบจัดการรอบการจัดส่งอัจฉริยะ (ADMIN)
-        </p>
 
-        <div className="bg-orange-50 text-orange-800 px-4 py-3 rounded-lg flex justify-between items-center mb-6 font-semibold">
-          <span>ออเดอร์ที่รอดำเนินการ</span>
-          <span className="bg-orange-200 px-2 py-0.5 rounded-full">{orders.length}</span>
+        {/* Optimize result — car weight breakdown */}
+        {optimizeResult && (
+          <div style={{ background: "#0d1117", borderBottom: "1px solid #21262d", padding: "10px 14px" }}>
+            <div style={{ fontSize: 10, color: "#8b949e", fontWeight: 600, letterSpacing: ".8px", textTransform: "uppercase", marginBottom: 8 }}>ผลการจัดรถ</div>
+            {optimizeResult.map((t, i) => {
+              const [used, max] = t.usedCapacity.replace(" kg", "").split(" / ").map(Number);
+              const pct = max > 0 ? (used / max) * 100 : 0;
+              return (
+                <div key={t.tripNo} style={{ marginBottom: 10 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12, color: COLORS[i % COLORS.length] }}>{t.tripNo}</span>
+                    <span style={{ fontSize: 11, color: "#8b949e" }}>🚗 {t.carNo} · {t.orderCount} orders</span>
+                  </div>
+                  {/* weight bar */}
+                  <div style={{ height: 6, background: "#21262d", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: pct > 90 ? "#f85149" : pct > 70 ? "#d29922" : COLORS[i % COLORS.length], borderRadius: 3, transition: "width .5s" }}/>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#6e7681", marginTop: 3 }}>{used} / {max} กก. ({pct.toFixed(0)}%)</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Status filter tabs */}
+        <div style={{ display: "flex", borderBottom: "1px solid #21262d", background: "#161b22", flexShrink: 0 }}>
+          {[["all","ทั้งหมด"], ["pending","รอส่ง"], ["assigned","จัดรถแล้ว"], ["delivered","ส่งแล้ว"]].map(([v, l]) => (
+            <button key={v} onClick={() => setStatusFilter(v)}
+              style={{ flex: 1, padding: "8px 4px", background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 500, color: statusFilter === v ? "#3fb950" : "#8b949e", borderBottom: `2px solid ${statusFilter === v ? "#3fb950" : "transparent"}`, transition: "all .15s" }}>
+              {l}
+            </button>
+          ))}
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 mb-6">
-          <h2 className="font-bold text-gray-700 border-b pb-2">➕ สร้างออเดอร์จัดส่งจำลอง</h2>
-          
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">รหัสลูกค้า</label>
-            <input required type="text" 
-              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 outline-none transition-all"
-              value={formData.CusID} onChange={(e) => setFormData({...formData, CusID: e.target.value})} />
-          </div>
+        {/* Order list */}
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {filtered.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 0", color: "#484f58", fontSize: 13 }}>ไม่มีออเดอร์</div>
+          ) : filtered.map(order => {
+            const st      = STATUS[order.status] ?? STATUS.pending;
+            const isOpen  = expandOrder === order.orderno;
+            return (
+              <div key={order.orderno} style={{ borderBottom: "1px solid #21262d" }}>
+                <button onClick={() => setExpandOrder(isOpen ? null : order.orderno)}
+                  style={{ width: "100%", padding: "11px 14px", background: isOpen ? "#161b22" : "none", border: "none", cursor: "pointer", textAlign: "left", transition: "background .15s" }}
+                  onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = "#161b22"; }}
+                  onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = "none"; }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12, fontWeight: 500, color: "#e6edf3" }}>{order.orderno}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 5, background: st.bg, color: st.color }}>{st.label}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#8b949e", marginTop: 4, display: "flex", gap: 12 }}>
+                    <span>👤 {order.customer_name ?? "—"}</span>
+                    <span>⚖️ {order.total_weight} กก.</span>
+                    <span style={{ color: "#3fb950" }}>฿{fmt(order.total_price)}</span>
+                  </div>
+                </button>
 
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">น้ำหนักรวม (กก.)</label>
-            <input required type="number" step="0.1" placeholder="เช่น 50.5"
-              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 outline-none transition-all"
-              value={formData.Total_weight} onChange={(e) => setFormData({...formData, Total_weight: e.target.value})} />
-          </div>
+                {/* expanded items */}
+                {isOpen && (
+                  <div style={{ padding: "0 14px 12px", background: "#161b22" }}>
+                    <div style={{ fontSize: 10, color: "#6e7681", marginBottom: 6 }}>
+                      📍 {order.distance_from_store} กม. {order.is_free_delivery ? "· ฟรีค่าส่ง ✅" : "· มีค่าส่ง"}
+                      {" · "}{order.customer_phone}
+                    </div>
+                    {order.items?.map((item, i) => (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#8b949e", marginBottom: 3 }}>
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 8 }}>{item.prodname} ×{item.quantity}</span>
+                        <span style={{ fontFamily: "'IBM Plex Mono'", color: "#e6edf3", flexShrink: 0 }}>฿{fmt(item.price_at_that_time * item.quantity)}</span>
+                      </div>
+                    ))}
+                    <button onClick={() => map.current?.flyTo({ center: [order.delivery_lng, order.delivery_lat], zoom: 15, duration: 800 })}
+                      style={{ marginTop: 8, fontSize: 11, color: "#60a5fa", background: "none", border: "1px solid #1f6feb", borderRadius: 5, padding: "4px 10px", cursor: "pointer" }}>
+                      📍 ดูบนแผนที่
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">ละติจูด (Lat)</label>
-              <input required type="number" step="any" placeholder={`${STORE_LAT}`}
-                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 outline-none"
-                value={formData.lat} onChange={(e) => setFormData({...formData, lat: e.target.value})} />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">ลองจิจูด (Lng)</label>
-              <input required type="number" step="any" placeholder={`${STORE_LNG}`}
-                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 outline-none"
-                value={formData.lng} onChange={(e) => setFormData({...formData, lng: e.target.value})} />
-            </div>
-          </div>
-
-          <button 
-            type="submit" 
-            disabled={isLoading}
-            className={`mt-2 w-full py-3 rounded-xl font-bold text-white shadow-lg transition-all 
-              ${isLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 hover:shadow-green-500/30 hover:-translate-y-0.5'}`}
-          >
-            {isLoading ? '⏳ กำลังบันทึก...' : '📍 บันทึกและปักหมุด'}
-          </button>
-        </form>
-
-        <button 
-          onClick={handleOptimize}
-          disabled={isOptimizing}
-          className={`w-full font-bold py-3 rounded-xl shadow-lg transition-all 
-            ${isOptimizing ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white hover:shadow-blue-500/30 hover:-translate-y-0.5'}`}
-        >
-          {isOptimizing ? '⚙️ กำลังประมวลผล...' : '🚚 ประมวลผลจัดรถ (Optimize)'}
-        </button>
-
-      </div> 
+      {/* ── Map (right, fullscreen) ── */}
+      <div style={{ flex: 1, position: "relative" }}>
+        <div ref={mapRef} style={{ position: "absolute", inset: 0 }}/>
+      </div>
     </main>
   );
 }

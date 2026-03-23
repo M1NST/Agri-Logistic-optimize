@@ -12,8 +12,13 @@ export default function LoginPage() {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (token) {
-      router.push("/");
+    const userStr = localStorage.getItem("user");
+    if (token && userStr) {
+      const user = JSON.parse(userStr);
+      if (user.role === "ADMIN") router.push("/");
+      else if (user.role === "STAFF") router.push("/pos");
+      else if (user.role === "DRIVER") router.push("/driver-tasks");
+      else router.push("/customer-portal");
     }
   }, [router]);
 
@@ -35,13 +40,14 @@ export default function LoginPage() {
         localStorage.setItem("token", data.token);
         localStorage.setItem("user", JSON.stringify(data.user));
 
-
         if (data.user.role === "ADMIN") {
           router.push("/");
+        } else if (data.user.role === "STAFF") {
+          router.push("/pos");
         } else if (data.user.role === "DRIVER") {
           router.push("/driver-tasks");
         } else {
-          router.push("/customer-portal"); 
+          router.push("/customer-portal");
         }
       } else {
         setError(data.message || "เบอร์โทรศัพท์หรือรหัสผ่านไม่ถูกต้อง");
@@ -82,7 +88,10 @@ export default function LoginPage() {
         <form className="mt-8 space-y-6" onSubmit={handleLogin}>
           <div className="space-y-4 rounded-md shadow-sm">
             <div>
-              <label htmlFor="phone" className="block text-sm font-semibold text-gray-700 mb-1">
+              <label
+                htmlFor="phone"
+                className="block text-sm font-semibold text-gray-700 mb-1"
+              >
                 เบอร์โทรศัพท์ (Phone)
               </label>
               <input
@@ -97,7 +106,10 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label htmlFor="password" className="block text-sm font-semibold text-gray-700 mb-1">
+              <label
+                htmlFor="password"
+                className="block text-sm font-semibold text-gray-700 mb-1"
+              >
                 รหัสผ่าน (Password)
               </label>
               <input
@@ -118,20 +130,44 @@ export default function LoginPage() {
               type="submit"
               disabled={isLoading}
               className={`group relative flex w-full justify-center rounded-xl border border-transparent py-3 px-4 text-sm font-bold text-white shadow-md transition-all 
-                ${isLoading 
-                  ? "bg-gray-400 cursor-not-allowed" 
-                  : "bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 hover:scale-[1.02]"
+                ${
+                  isLoading
+                    ? "bg-gray-400 cursor-not-allowed"
+                    : "bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 hover:scale-[1.02]"
                 }`}
             >
               <span className="absolute inset-y-0 left-0 flex items-center pl-3">
                 {isLoading ? (
-                  <svg className="h-5 w-5 animate-spin text-white" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  <svg
+                    className="h-5 w-5 animate-spin text-white"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
                   </svg>
                 ) : (
-                  <svg className="h-5 w-5 text-green-500 group-hover:text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                  <svg
+                    className="h-5 w-5 text-green-500 group-hover:text-green-400"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 )}
               </span>
