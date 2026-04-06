@@ -68,13 +68,17 @@ export default function PosPage() {
   }, [router]);
 
   // ── fetch products ─────────────────────────────────────────────────────────────
-  useEffect(() => {
+  const fetchProducts = () => {
     if (!token) return;
     setLoadingProd(true);
     fetch(`${API}/products`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(d => { if (d.success) setProducts(d.data); })
       .finally(() => setLoadingProd(false));
+  };
+
+  useEffect(() => {
+    fetchProducts();
   }, [token]);
 
   // ── init map (only when step 2 mounts) ────────────────────────────────────────
@@ -86,7 +90,7 @@ export default function PosPage() {
       if (!mapRef.current || map.current) return;
       map.current = new mapboxgl.Map({
         container: mapRef.current,
-        style: "mapbox://styles/mapbox/streets-v12",
+        style: "mapbox://styles/mapbox/satellite-streets-v12",
         center: [STORE_LNG, STORE_LAT],
         zoom: 12,
       });
@@ -223,6 +227,8 @@ export default function PosPage() {
         pinMark.current?.remove(); pinMark.current = null;
         map.current?.remove(); map.current = null;
         setStep(1);
+        // refetch products to update stock
+        fetchProducts();
       } else {
         alert("❌ " + d.message);
       }
@@ -318,7 +324,7 @@ export default function PosPage() {
                   const inCart     = cart.find(c => c.prodid === p.prodid);
                   const outOfStock = p.qty <= 0;
                   return (
-                    <button key={p.prodid} onClick={() => !outOfStock && addToCart(p)} disabled={outOfStock}
+                    <div key={p.prodid} onClick={() => !outOfStock && addToCart(p)} 
                       style={{ background: inCart ? "#0d2818" : "#161b22", border: `1px solid ${inCart ? "#238636" : "#21262d"}`, borderRadius: 12, padding: "16px 14px", textAlign: "left", cursor: outOfStock ? "not-allowed" : "pointer", transition: "border-color .15s, background .15s", opacity: outOfStock ? 0.4 : 1 }}
                       onMouseEnter={e => { if (!outOfStock) e.currentTarget.style.borderColor = inCart ? "#3fb950" : "#388bfd"; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = inCart ? "#238636" : "#21262d"; }}>
@@ -345,7 +351,7 @@ export default function PosPage() {
                             style={{ width: 30, height: 30, background: "#21262d", border: "1px solid #30363d", borderRadius: 6, color: "#e6edf3", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                         </div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>

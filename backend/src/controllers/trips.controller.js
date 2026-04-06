@@ -1,10 +1,13 @@
-import pool from '../config/db.js';
+import pool from "../config/db.js";
+const STORE_LAT = Number(process.env.STORE_LAT);
+const STORE_LNG = Number(process.env.STORE_LNG);
 
 export const getMyTrips = async (req, res) => {
   try {
     const driverID = req.user.userId;
 
-    const tripsRes = await pool.query(`
+    const tripsRes = await pool.query(
+      `
       SELECT
         t.TripNo,
         t.CarNo,
@@ -14,7 +17,9 @@ export const getMyTrips = async (req, res) => {
       FROM trips t
       WHERE t.DriverID = $1
       ORDER BY t.Created_at DESC
-    `, [driverID]);
+    `,
+      [driverID],
+    );
 
     if (tripsRes.rows.length === 0) {
       return res.json({ success: true, data: [] });
@@ -22,37 +27,44 @@ export const getMyTrips = async (req, res) => {
 
     const trips = await Promise.all(
       tripsRes.rows.map(async (trip) => {
-        const ordersRes = await pool.query(`
-          SELECT
-            to2.delivery_sequence,
-            o.OrderNo,
-            o.Total_weight,
-            o.Delivery_lat,
-            o.Delivery_lng,
-            o.Status,
-            c.Name  AS customer_name,
-            c.Phone AS customer_phone
-          FROM trip_orders to2
-          JOIN orders   o ON to2.OrderNo = o.OrderNo
-          LEFT JOIN customers c ON o.CusID = c.CusID
-          WHERE to2.TripNo = $1
-          ORDER BY to2.delivery_sequence
-        `, [trip.tripno]);
+        const ordersRes = await pool.query(
+          `
+        SELECT
+        to2.delivery_sequence,
+        o.OrderNo,
+        o.Total_weight,
+        o.Delivery_lat,
+        o.Delivery_lng,
+        o.Status,
+        c.Name  AS customer_name,
+        c.Phone AS customer_phone,
+        o.Delivery_location <-> ST_SetSRID(
+        ST_MakePoint($2, $3), 4326
+        )::geography AS dist_from_store
+      FROM trip_orders to2
+      JOIN orders o     ON to2.OrderNo = o.OrderNo
+      LEFT JOIN customers c ON o.CusID = c.CusID
+      WHERE to2.TripNo = $1
+      AND o.Delivery_location IS NOT NULL
+  ORDER BY dist_from_store ASC  -- ← ใกล้ร้านก่อน
+`,
+          [trip.tripno, STORE_LNG, STORE_LAT],
+        );
 
         return {
-          tripno:       trip.tripno,
-          carno:        trip.carno,
+          tripno: trip.tripno,
+          carno: trip.carno,
           total_weight: trip.total_weight,
-          status:       trip.status,
-          created_at:   trip.created_at,
-          orders:       ordersRes.rows,
+          status: trip.status,
+          created_at: trip.created_at,
+          orders: ordersRes.rows,
         };
-      })
+      }),
     );
 
     res.json({ success: true, data: trips });
   } catch (error) {
-    console.error('getMyTrips Error:', error);
+    console.error("getMyTrips Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -78,7 +90,7 @@ export const getAllTrips = async (req, res) => {
 
     res.json({ success: true, data: tripsRes.rows });
   } catch (error) {
-    console.error('getAllTrips Error:', error);
+    console.error("getAllTrips Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

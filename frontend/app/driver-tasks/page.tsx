@@ -164,9 +164,9 @@ export default function DriverTasksPage() {
         [STORE_LNG, STORE_LAT],
       ];
       try {
-        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords
-          .map((c) => c.join(","))
-          .join(";")}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${
+          coords.map(c => c.join(",")).join(";")
+        }?geometries=geojson&overview=full&optimize_waypoints=true&access_token=${mapboxgl.accessToken}`;
         const data = await (await fetch(url)).json();
         if (!data.routes?.[0]) return;
 

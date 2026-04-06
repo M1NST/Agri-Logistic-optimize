@@ -69,7 +69,7 @@ CREATE TABLE orders (
     Delivery_lng DECIMAL(11, 8),
     Distance_from_store DECIMAL(10, 2),
     Is_free_delivery BOOLEAN DEFAULT FALSE,
-    Delivery_fee DECIMAL(10,2) NOT NULL DEFAULT 0;
+    Delivery_fee DECIMAL(10,2) NOT NULL DEFAULT 0,
     Created_at TIMESTAMP DEFAULT NOW(),
     
     CONSTRAINT pk_orders PRIMARY KEY (OrderNo),

@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN as string;
 const API_URL   = process.env.NEXT_PUBLIC_API_URL;
@@ -108,8 +107,9 @@ export default function AdminPage() {
   const drawRoute = async (id: string, coords: number[][], color: string) => {
     if (!map.current) return;
     try {
-      const url  = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords.map(c => c.join(",")).join(";")
-        }?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${
+        coords.map(c => c.join(",")).join(";")
+      }?geometries=geojson&overview=full&optimize_waypoints=true&access_token=${mapboxgl.accessToken}`;
       const res  = await fetch(url);
       const data = await res.json();
       if (!data.routes?.[0]) return;
@@ -156,6 +156,7 @@ export default function AdminPage() {
   const filtered    = statusFilter === "all" ? orders : orders.filter(o => o.status === statusFilter);
   const pendingCnt  = orders.filter(o => o.status === "pending").length;
   const totalWeight = orders.filter(o => o.status === "pending").reduce((s, o) => s + Number(o.total_weight), 0);
+  const totalRevenue = orders.reduce((s, o) => s + Number(o.total_price || 0), 0);
 
   return (
     <main style={{ display: "flex", height: "100vh", overflow: "hidden", background: "#0d1117", fontFamily: "'IBM Plex Sans Thai','IBM Plex Sans',sans-serif", color: "#e6edf3" }}>
@@ -247,7 +248,7 @@ export default function AdminPage() {
                   <div style={{ fontSize: 11, color: "#8b949e", marginTop: 4, display: "flex", gap: 12 }}>
                     <span>👤 {order.customer_name ?? "—"}</span>
                     <span>⚖️ {order.total_weight} กก.</span>
-                    <span style={{ color: "#3fb950" }}>฿{fmt(order.total_price)}</span>
+                    <span style={{ color: "#3fb950" }}>฿{fmt(Number(order.total_price))}</span>
                   </div>
                 </button>
 
