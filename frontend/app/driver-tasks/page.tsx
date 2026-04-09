@@ -116,7 +116,7 @@ export default function DriverTasksPage() {
     const draw = async () => {
       markers.current.forEach((m) => m.remove());
       markers.current = [];
-      ["route-shadow", "route-line"].forEach((id) => {
+      ["route","route-shadow", "route-line"].forEach((id) => {
         if (map.current!.getLayer(id)) map.current!.removeLayer(id);
       });
       if (map.current!.getSource("route")) map.current!.removeSource("route");
@@ -164,39 +164,44 @@ export default function DriverTasksPage() {
         [STORE_LNG, STORE_LAT],
       ];
       try {
-        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${
-          coords.map(c => c.join(",")).join(";")
-        }?geometries=geojson&overview=full&optimize_waypoints=true&access_token=${mapboxgl.accessToken}`;
+        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords
+          .map((c) => c.join(","))
+          .join(
+            ";",
+          )}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`;
         const data = await (await fetch(url)).json();
         if (!data.routes?.[0]) return;
 
-        map.current!.addSource("route", {
-          type: "geojson",
-          data: {
+        if (map.current!.getSource("route")) {
+          (map.current!.getSource("route") as mapboxgl.GeoJSONSource).setData({
             type: "Feature",
             properties: {},
             geometry: data.routes[0].geometry,
-          },
-        });
-        map.current!.addLayer({
-          id: "route-shadow",
-          type: "line",
-          source: "route",
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: {
-            "line-color": "#000",
-            "line-width": 9,
-            "line-opacity": 0.4,
-            "line-blur": 6,
-          },
-        });
-        map.current!.addLayer({
-          id: "route-line",
-          type: "line",
-          source: "route",
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": color, "line-width": 5, "line-opacity": 0.95 },
-        });
+          });
+        } else {
+          map.current!.addSource("route", {
+            type: "geojson",
+            data: {
+              type: "Feature",
+              properties: {},
+              geometry: data.routes[0].geometry,
+            },
+          });
+
+          map.current!.addLayer({
+            id: "route",
+            type: "line",
+            source: "route",
+            layout: {
+              "line-join": "round",
+              "line-cap": "round",
+            },
+            paint: {
+              "line-color": "#3b82f6", 
+              "line-width": 5,
+            },
+          });
+        }
 
         const bounds = coords.reduce(
           (b, c) => b.extend(c as [number, number]),

@@ -77,6 +77,12 @@ export default function PosPage() {
       .finally(() => setLoadingProd(false));
   };
 
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let onlyNumber = e.target.value.replace(/\D/g, "");
+    if (onlyNumber.length > 10) {
+    onlyNumber = onlyNumber.slice(0, 10);
+    }
+    setPhoneInput(onlyNumber);};
   useEffect(() => {
     fetchProducts();
   }, [token]);
@@ -421,8 +427,12 @@ export default function PosPage() {
                     <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
                       <input placeholder="กรอกเบอร์โทรลูกค้า"
                         value={phoneInput}
-                        onChange={e => { setPhoneInput(e.target.value); setLookupError(""); }}
+                        onChange={e => {const onlyNums = e.target.value.replace(/\D/g, '');
+                          if (onlyNums.length <= 10) {
+                            setPhoneInput(onlyNums);
+                            setLookupError(""); }}}
                         onKeyDown={e => e.key === "Enter" && lookupCust()}
+                        type="tel" maxLength={10}
                         style={{ flex: 1, background: "#0d1117", border: "1px solid #30363d", borderRadius: 7, color: "#e6edf3", padding: "8px 10px", fontSize: 13, outline: "none", fontFamily: "'IBM Plex Mono'" }}
                       />
                       <button onClick={lookupCust} disabled={lookingUp || !phoneInput.trim()}

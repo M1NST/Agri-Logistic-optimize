@@ -22,7 +22,7 @@ export const optimizeTrips = async (req, res) => {
       SELECT CarNo, MaxCapacity
       FROM cars
       WHERE Status = 'active'
-      ORDER BY MaxCapacity DESC
+      ORDER BY MaxCapacity ASC
     `);
     const availableCars = carsRes.rows;
 

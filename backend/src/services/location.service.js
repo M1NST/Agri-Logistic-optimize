@@ -3,7 +3,7 @@ import pool from '../config/db.js';
 export class LocationService {
   static get STORE_LAT() { return Number(process.env.STORE_LAT); }
   static get STORE_LNG() { return Number(process.env.STORE_LNG); }
-  static get FREE_KM()   { return Number(process.env.FREE_DELIVERY_KM); }
+  static get FREE_KM()   { return Number(process.env.FREE_DELIVERY_RADIUS_KM); } 
   static get FEE_PER_KM() { return Number(process.env.DELIVERY_FEE_PER_KM); }
   static get MAPBOX_TOKEN() { return process.env.MAPBOX_ACCESS_TOKEN; }
 
@@ -28,8 +28,8 @@ export class LocationService {
 
   static calculateDeliveryFee(distanceMeters) {
     const distanceKm = distanceMeters / 1000;
-    if (distanceKm <= this.FREE_RADIUS_KM) return 0;
-    const extraKm = distanceKm - this.FREE_RADIUS_KM;
+    if (distanceKm <= this.FREE_KM) return 0;
+    const extraKm = distanceKm - this.FREE_KM;
     return Math.ceil(extraKm) * this.FEE_PER_KM;
   } 
 

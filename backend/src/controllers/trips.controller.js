@@ -46,7 +46,7 @@ export const getMyTrips = async (req, res) => {
       LEFT JOIN customers c ON o.CusID = c.CusID
       WHERE to2.TripNo = $1
       AND o.Delivery_location IS NOT NULL
-  ORDER BY dist_from_store ASC  -- ← ใกล้ร้านก่อน
+  ORDER BY dist_from_store ASC 
 `,
           [trip.tripno, STORE_LNG, STORE_LAT],
         );
